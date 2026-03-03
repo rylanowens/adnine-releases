@@ -33,6 +33,7 @@ env:
 jobs:
   build-and-release:
     runs-on: macos-latest
+    environment: Adnine Releases Prod
     steps:
       - name: Validate version input
         run: |
