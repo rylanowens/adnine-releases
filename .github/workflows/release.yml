@@ -4,6 +4,8 @@
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # Required secrets (set in this repo's Settings → Secrets):
+#   APPLE_CERTIFICATE_BASE64 - Developer ID Application cert exported as .p12, base64-encoded
+#   APPLE_CERTIFICATE_PASSWORD - password used when exporting the .p12
 #   APPLE_SIGNING_IDENTITY  - "Developer ID Application: Name (TEAM_ID)"
 #   APPLE_ID                - Apple ID email
 #   APPLE_PASSWORD          - App-specific password (not your account password)
@@ -67,6 +69,31 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
       - name: Build universal binary
         env:
