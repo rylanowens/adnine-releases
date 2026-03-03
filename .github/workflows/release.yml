@@ -11,12 +11,8 @@
 #   TAURI_SIGNING_PRIVATE_KEY          - contents of ~/.tauri/adnine.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - password for the signing key (or empty)
 #
-# Required variables (set in this repo's Settings → Variables):
-#   SOURCE_REPO_SSH_KEY     - deploy key with read access to rylanowens/chord (optional, see note)
-#
-# Note: This workflow assumes the source code lives in a private repo (rylanowens/chord).
-# You'll need a deploy key or PAT to clone it. Alternatively, you can run this workflow
-# from the private repo and use a PAT to create releases on this public repo.
+# Required secrets (continued):
+#   SOURCE_REPO_SSH_KEY     - deploy key (private key) with read access to rylanowens/chord
 
 name: Release
 
