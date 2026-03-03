@@ -1,0 +1,138 @@
+# Builds, signs, notarizes, and publishes a new Adnine release.
+#
+# Trigger: push a version tag from the private source repo, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Required secrets (set in this repo's Settings → Secrets):
+#   APPLE_SIGNING_IDENTITY  - "Developer ID Application: Name (TEAM_ID)"
+#   APPLE_ID                - Apple ID email
+#   APPLE_PASSWORD          - App-specific password (not your account password)
+#   APPLE_TEAM_ID           - 10-character team identifier
+#   TAURI_SIGNING_PRIVATE_KEY          - contents of ~/.tauri/adnine.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - password for the signing key (or empty)
+#
+# Required variables (set in this repo's Settings → Variables):
+#   SOURCE_REPO_SSH_KEY     - deploy key with read access to rylanowens/chord (optional, see note)
+#
+# Note: This workflow assumes the source code lives in a private repo (rylanowens/chord).
+# You'll need a deploy key or PAT to clone it. Alternatively, you can run this workflow
+# from the private repo and use a PAT to create releases on this public repo.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: Adnine
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Validate version input
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be semver (e.g. 0.1.0), got: ${{ inputs.version }}"
+            exit 1
+          fi
+
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+        with:
+          repository: rylanowens/chord
+          ssh-key: ${{ secrets.SOURCE_REPO_SSH_KEY }}
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build universal binary
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Gather release artifacts
+        id: artifacts
+        run: |
+          VERSION="${{ inputs.version }}"
+          BUNDLE_DIR="src-tauri/target/universal-apple-darwin/release/bundle"
+
+          DMG=$(ls "${BUNDLE_DIR}/dmg/"*.dmg)
+          TARGZ=$(ls "${BUNDLE_DIR}/macos/"*.tar.gz | grep -v '\.sig$')
+          SIG=$(ls "${BUNDLE_DIR}/macos/"*.tar.gz.sig)
+          LATEST="${BUNDLE_DIR}/macos/latest.json"
+
+          echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
+          echo "targz=${TARGZ}" >> "$GITHUB_OUTPUT"
+          echo "sig=${SIG}" >> "$GITHUB_OUTPUT"
+          echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Verify all artifacts exist
+          for f in "$DMG" "$TARGZ" "$SIG" "$LATEST"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing artifact: $f"
+              exit 1
+            fi
+            echo "Found: $f ($(du -h "$f" | cut -f1))"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Adnine ${{ inputs.version }}
+          draft: true
+          generate_release_notes: false
+          body: |
+            ## Adnine ${{ inputs.version }}
+
+            ### Download
+
+            **[Adnine_${{ inputs.version }}_universal.dmg](https://github.com/rylanowens/adnine-releases/releases/download/v${{ inputs.version }}/Adnine_${{ inputs.version }}_universal.dmg)** — macOS 11+, Intel & Apple Silicon
+
+            ### What's New
+
+            -
+
+            ### Installation
+
+            1. Open the DMG and drag Adnine to Applications
+            2. Launch from Applications
+
+            > First launch: if macOS blocks the app, right-click → Open → click "Open" in the dialog.
+          files: |
+            ${{ steps.artifacts.outputs.dmg }}
+            ${{ steps.artifacts.outputs.targz }}
+            ${{ steps.artifacts.outputs.sig }}
+            ${{ steps.artifacts.outputs.latest }}
