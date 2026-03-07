@@ -116,6 +116,27 @@ jobs:
           SIG=$(ls "${BUNDLE_DIR}/macos/"*.tar.gz.sig)
           LATEST="${BUNDLE_DIR}/macos/latest.json"
 
+          # Generate latest.json for the Tauri updater
+          SIGNATURE=$(cat "$SIG")
+          TARGZ_FILENAME=$(basename "$TARGZ")
+          DOWNLOAD_URL="https://github.com/rylanowens/adnine-releases/releases/download/v${VERSION}/${TARGZ_FILENAME}"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "Adnine $VERSION" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$SIGNATURE" \
+            --arg url "$DOWNLOAD_URL" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-universal": { signature: $sig, url: $url },
+                "darwin-aarch64": { signature: $sig, url: $url },
+                "darwin-x86_64": { signature: $sig, url: $url }
+              }
+            }' > "$LATEST"
+
           echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
           echo "targz=${TARGZ}" >> "$GITHUB_OUTPUT"
           echo "sig=${SIG}" >> "$GITHUB_OUTPUT"
