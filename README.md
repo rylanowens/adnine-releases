@@ -2,7 +2,7 @@
 
 Write songs by playing chord degrees, not individual keys. Adnine maps your MIDI controller (or computer keyboard) to the Nashville number system — press 1 through 7 to play chords in any key, with automatic voice leading and arpeggiation.
 
-[![Download](https://img.shields.io/github/v/release/rylanowens/adnine-releases?label=Download&style=for-the-badge)](https://github.com/rylanowens/adnine-releases/releases/latest)
+[![Download](https://img.shields.io/github/v/release/rylanowens/adnine-releases?label=Download&style=for-the-badge&cache=v1)](https://github.com/rylanowens/adnine-releases/releases/latest)
 
 ## How It Works
 
