@@ -25,6 +25,8 @@ on:
         description: "Version to release (e.g. 0.1.0)"
         required: true
         type: string
+  repository_dispatch:
+    types: [release-trigger]
 
 permissions:
   contents: write
@@ -37,10 +39,20 @@ jobs:
     runs-on: macos-latest
     environment: Adnine Releases Prod
     steps:
+      - name: Resolve version
+        id: resolve
+        run: |
+          VERSION="${{ inputs.version || github.event.client_payload.version }}"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::No version provided (neither workflow_dispatch input nor repository_dispatch payload)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Validate version input
         run: |
-          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Version must be semver (e.g. 0.1.0), got: ${{ inputs.version }}"
+          if [[ ! "${{ steps.resolve.outputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be semver (e.g. 0.1.0), got: ${{ steps.resolve.outputs.version }}"
             exit 1
           fi
 
@@ -110,10 +122,12 @@ jobs:
       - name: Gather release artifacts
         id: artifacts
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ steps.resolve.outputs.version }}"
           BUNDLE_DIR="src-tauri/target/universal-apple-darwin/release/bundle"
 
           DMG=$(ls "${BUNDLE_DIR}/dmg/"*.dmg)
+          ALIAS="${BUNDLE_DIR}/dmg/Adnine_universal.dmg"
+          cp "$DMG" "$ALIAS"
           TARGZ=$(ls "${BUNDLE_DIR}/macos/"*.tar.gz | grep -v '\.sig$')
           SIG=$(ls "${BUNDLE_DIR}/macos/"*.tar.gz.sig)
           LATEST="${BUNDLE_DIR}/macos/latest.json"
@@ -140,13 +154,14 @@ jobs:
             }' > "$LATEST"
 
           echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
+          echo "alias=${ALIAS}" >> "$GITHUB_OUTPUT"
           echo "targz=${TARGZ}" >> "$GITHUB_OUTPUT"
           echo "sig=${SIG}" >> "$GITHUB_OUTPUT"
           echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           # Verify all artifacts exist
-          for f in "$DMG" "$TARGZ" "$SIG" "$LATEST"; do
+          for f in "$DMG" "$ALIAS" "$TARGZ" "$SIG" "$LATEST"; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing artifact: $f"
               exit 1
@@ -157,16 +172,16 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
-          name: Adnine ${{ inputs.version }}
-          draft: true
-          generate_release_notes: false
+          tag_name: v${{ steps.resolve.outputs.version }}
+          name: Adnine ${{ steps.resolve.outputs.version }}
+          draft: false
+          generate_release_notes: true
           body: |
-            ## Adnine ${{ inputs.version }}
+            ## Adnine ${{ steps.resolve.outputs.version }}
 
             ### Download
 
-            **[Adnine_${{ inputs.version }}_universal.dmg](https://github.com/rylanowens/adnine-releases/releases/download/v${{ inputs.version }}/Adnine_${{ inputs.version }}_universal.dmg)** — macOS 11+, Intel & Apple Silicon
+            **[Adnine_${{ steps.resolve.outputs.version }}_universal.dmg](https://github.com/rylanowens/adnine-releases/releases/download/v${{ steps.resolve.outputs.version }}/Adnine_${{ steps.resolve.outputs.version }}_universal.dmg)** — macOS 11+, Intel & Apple Silicon
 
             ### What's New
 
@@ -180,6 +195,7 @@ jobs:
             > First launch: if macOS blocks the app, right-click → Open → click "Open" in the dialog.
           files: |
             ${{ steps.artifacts.outputs.dmg }}
+            ${{ steps.artifacts.outputs.alias }}
             ${{ steps.artifacts.outputs.targz }}
             ${{ steps.artifacts.outputs.sig }}
             ${{ steps.artifacts.outputs.latest }}
